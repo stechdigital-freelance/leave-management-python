@@ -28,7 +28,7 @@ SessionDep = Annotated[Session, Depends(get_db)]
 
 @router.post("/login/access-token")
 
-def login_access_token(
+async def login_access_token(
     session: SessionDep, form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
 ) -> Token:
     """
@@ -36,7 +36,7 @@ def login_access_token(
     """
     # SQLAlchemy version: replace session.exec with session.execute().scalars().first()
     stmt = select(User).where(User.email == form_data.username)
-    user = session.execute(stmt).scalars().first()
+    user = (await session.execute(stmt)).scalars().first()
 
     if not user or not crud.verify_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=400, detail="Incorrect email or password")

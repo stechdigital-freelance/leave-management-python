@@ -8,8 +8,5 @@ class UserService(BaseService):
         self.user_repository = user_repository
         super().__init__(user_repository)
 
-    
-    def get_all_users(self, skip: int = 0, limit: int = 100) -> Any:
-        return self.user_repository.get_all_users(skip, limit)
-
-
+    async def get_all_users(self, skip: int = 0, limit: int = 100) -> Any:
+        return await self.user_repository.get_all_users(skip, limit)

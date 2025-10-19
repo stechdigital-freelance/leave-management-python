@@ -1,8 +1,10 @@
-from contextlib import AbstractContextManager
+from contextlib import AbstractAsyncContextManager
 from typing import Any, Callable, Type, TypeVar, List, Optional
 
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, update, delete
+from sqlalchemy.orm import joinedload
 
 from app.core.config import settings
 from app.core.exceptions import DuplicatedError, NotFoundError
@@ -12,12 +14,12 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class BaseRepository:
-    def __init__(self, session_factory: Session, model: Type[T]) -> None:
+    def __init__(self, session_factory: Callable[..., AbstractAsyncContextManager[AsyncSession]], model: Type[T]) -> None:
         self.session_factory = session_factory
         self.model = model
 
-    def read_by_options(self, schema: T, eager: bool = False) -> dict:
-        with self.session_factory() as session:
+    async def read_by_options(self, schema: T, eager: bool = False) -> dict:
+        async with self.session_factory() as session:
             schema_as_dict: dict = schema.dict(exclude_none=True)
             ordering: str = schema_as_dict.get("ordering", settings.ORDERING)
             
@@ -40,25 +42,33 @@ class BaseRepository:
             # filter_options = dict_to_sqlalchemy_filter_options(self.model, schema.dict(exclude_none=True))
             filter_options = None
             
-            query = session.query(self.model)
+            # Build query using select
+            query = select(self.model)
             
             if eager:
                 for eager_relation in getattr(self.model, "eagers", []):
                     query = query.options(joinedload(getattr(self.model, eager_relation)))
             
             if filter_options:
-                filtered_query = query.filter(filter_options)
-            else:
-                filtered_query = query
+                query = query.where(filter_options)
                 
-            query = filtered_query.order_by(order_query)
+            query = query.order_by(order_query)
             
+            # Execute query for results
             if page_size == "all":
-                results = query.all()
+                result = await session.execute(query)
+                results = result.scalars().all()
             else:
-                results = query.limit(page_size).offset((page - 1) * page_size).all()
+                query = query.limit(page_size).offset((page - 1) * page_size)
+                result = await session.execute(query)
+                results = result.scalars().all()
             
-            total_count = filtered_query.count()
+            # Get total count (without pagination)
+            count_query = select(func.count()).select_from(self.model)
+            if filter_options:
+                count_query = count_query.where(filter_options)
+            total_count_result = await session.execute(count_query)
+            total_count = total_count_result.scalar_one()
             
             return {
                 "founds": results,
@@ -70,61 +80,95 @@ class BaseRepository:
                 },
             }
 
-    def read_by_id(self, id: int, eager: bool = False) -> T:
-        with self.session_factory() as session:
-            query = session.query(self.model)
+    async def read_by_id(self, id: int, eager: bool = False) -> T:
+        async with self.session_factory() as session:
+            query = select(self.model).where(self.model.id == id)
+            
             if eager:
                 for eager_relation in getattr(self.model, "eagers", []):
                     query = query.options(joinedload(getattr(self.model, eager_relation)))
-            query = query.filter(self.model.id == id).first()
-            if not query:
+            
+            result = await session.execute(query)
+            entity = result.scalar_one_or_none()
+            
+            if not entity:
                 raise NotFoundError(detail=f"not found id : {id}")
-            return query
+            return entity
 
-    def create(self, schema: T) -> T:
-        with self.session_factory() as session:
+    async def create(self, schema: T) -> T:
+        async with self.session_factory() as session:
             query = self.model(**schema.dict())
             try:
                 session.add(query)
-                session.commit()
-                session.refresh(query)
+                await session.commit()
+                await session.refresh(query)
             except IntegrityError as e:
-                session.rollback()
+                await session.rollback()
                 raise DuplicatedError(detail=str(e.orig))
             return query
 
-    def update(self, id: int, schema: T) -> T:
-        with self.session_factory() as session:
-            result = session.query(self.model).filter(self.model.id == id).update(schema.dict(exclude_none=True))
-            if result == 0:
+    async def update(self, id: int, schema: T) -> T:
+        async with self.session_factory() as session:
+            # Use update statement
+            stmt = (
+                update(self.model)
+                .where(self.model.id == id)
+                .values(**schema.dict(exclude_none=True))
+            )
+            result = await session.execute(stmt)
+            
+            if result.rowcount == 0:
                 raise NotFoundError(detail=f"not found id : {id}")
-            session.commit()
-            return self.read_by_id(id)
+                
+            await session.commit()
+            return await self.read_by_id(id)
 
-    def update_attr(self, id: int, column: str, value: Any) -> T:
-        with self.session_factory() as session:
-            result = session.query(self.model).filter(self.model.id == id).update({column: value})
-            if result == 0:
+    async def update_attr(self, id: int, column: str, value: Any) -> T:
+        async with self.session_factory() as session:
+            stmt = (
+                update(self.model)
+                .where(self.model.id == id)
+                .values({column: value})
+            )
+            result = await session.execute(stmt)
+            
+            if result.rowcount == 0:
                 raise NotFoundError(detail=f"not found id : {id}")
-            session.commit()
-            return self.read_by_id(id)
+                
+            await session.commit()
+            return await self.read_by_id(id)
 
-    def whole_update(self, id: int, schema: T) -> T:
-        with self.session_factory() as session:
-            result = session.query(self.model).filter(self.model.id == id).update(schema.dict())
-            if result == 0:
+    async def whole_update(self, id: int, schema: T) -> T:
+        async with self.session_factory() as session:
+            stmt = (
+                update(self.model)
+                .where(self.model.id == id)
+                .values(**schema.dict())
+            )
+            result = await session.execute(stmt)
+            
+            if result.rowcount == 0:
                 raise NotFoundError(detail=f"not found id : {id}")
-            session.commit()
-            return self.read_by_id(id)
+                
+            await session.commit()
+            return await self.read_by_id(id)
 
-    def delete_by_id(self, id: int) -> None:
-        with self.session_factory() as session:
-            query = session.query(self.model).filter(self.model.id == id).first()
-            if not query:
+    async def delete_by_id(self, id: int) -> None:
+        async with self.session_factory() as session:
+            # First check if entity exists
+            query = select(self.model).where(self.model.id == id)
+            result = await session.execute(query)
+            entity = result.scalar_one_or_none()
+            
+            if not entity:
                 raise NotFoundError(detail=f"not found id : {id}")
-            session.delete(query)
-            session.commit()
+            
+            # Delete the entity
+            stmt = delete(self.model).where(self.model.id == id)
+            await session.execute(stmt)
+            await session.commit()
 
-    def close_scoped_session(self) -> None:
-        with self.session_factory() as session:
-            session.close()
+    async def close_scoped_session(self) -> None:
+        # In async context, session management is typically handled by the context manager
+        # This method might not be needed anymore
+        pass
