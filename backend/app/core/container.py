@@ -24,7 +24,11 @@ class Container(containers.DeclarativeContainer):
     # direct db connection for testing
     # db = providers.Singleton(Database, db_url='postgresql+psycopg://postgres:postgres@localhost:5432/app')
 
-    db = providers.Singleton(Database, db_url='postgresql+asyncpg://postgres:postgres@localhost:5432/app')
+    # async db connection for testing for postgres 17
+    # db = providers.Singleton(Database, db_url='postgresql+asyncpg://postgres:postgres@localhost:5432/app')
+
+    # async db connection for testing for postgres 18
+    db = providers.Singleton(Database, db_url='postgresql+asyncpg://postgres:postgres@localhost:5434/app')
 
     user_repository = providers.Factory(UserRepository, session_factory=db.provided.session)
 

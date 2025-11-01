@@ -26,3 +26,16 @@ class UserRepository(BaseRepository):
             users_public: List[UserPublic] = [UserPublic.model_validate(u) for u in users]
 
             return users_public
+        
+    async def get_all_users_new(self, skip: int = 0, limit: int = 100) -> Any:
+        async with self.session_factory() as session:
+            # Get total count - await the scalar result
+
+            columns = [ "User.id", "User.email", "User.full_name", "User.is_active" ]
+         
+            users_data  = await super().get_all(columns, None, None, None, page=skip, per_page=limit)
+
+            # Convert ORM/SQLModel User instances to the public pydantic schema
+            # users_public: List[UserPublic] = [UserPublic.model_validate(u) for u in users_data["items"]]
+
+            return users_data
