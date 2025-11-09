@@ -176,15 +176,12 @@ class BaseRepository:
         columns: Optional[List[str]] = None,
         joins: Optional[List[dict]] = None,
     ) -> tuple[Select, Dict[str, Any]]:
-        base_alias = aliased(self.model)
-        model_aliases = {self.model.__name__: base_alias}
-        q = select().select_from(base_alias)
+         base_alias = aliased(self.model)
+         model_aliases = {self.model.__name__: base_alias}
+         q = select().select_from(base_alias)
 
-        if joins:
-            for join in joins:
-                join_path = join["path"] if isinstance(join, dict) else join
-                onclause = join.get("on") if isinstance(join, dict) else None
-
+         if joins:
+            for join_path in joins:
                 parts = join_path.split(".")
                 current_model = self.model
                 current_alias = base_alias
@@ -192,90 +189,130 @@ class BaseRepository:
                 for part in parts:
                     rel = getattr(current_model, part, None)
                     if not rel:
-                        break
+                        raise ValueError(f"Relationship '{part}' not found on {current_model.__name__}")
+                    
                     related_model = inspect(rel.property.mapper).class_
                     alias = model_aliases.get(related_model.__name__)
                     if not alias:
                         alias = aliased(related_model)
                         model_aliases[related_model.__name__] = alias
 
+                    # Join using the relationship (no explicit on clause needed)
                     q = q.join(alias, getattr(current_alias, part))
+                    
                     current_model = related_model
                     current_alias = alias
 
-        if columns:
+         if columns:
             select_columns = []
             for col in columns:
                 if "." not in col:
+                    attr = getattr(base_alias, col, None)
+                    if attr is not None:
+                        select_columns.append(attr)
                     continue
+                    
+                # Handle model.column format
                 model_name, col_name = col.split(".", 1)
                 model_alias = model_aliases.get(model_name)
                 if model_alias:
+                    # If there are more dots, it's a nested relationship
+                    if "." in col_name:
+                        # For nested paths like "User.profile.name", we need to handle differently
+                        # For now, let's assume we only go one level deep
+                        continue
                     attr = getattr(model_alias, col_name, None)
                     if attr is not None:
                         select_columns.append(attr)
+            
             q = q.with_only_columns(*select_columns)
-        else:
+         else:
             q = q.with_only_columns([base_alias])
 
-        return q, model_aliases
+         return q, model_aliases
 
     # ------------------------------------------------------------------
     # Apply filters
     # ------------------------------------------------------------------
     def _apply_filters(
-        self,
-        query: Select,
-        filter_spec: Optional[List[Dict[str, Any]]],
-        model_aliases: Dict[str, Any],
-    ) -> Select:
+    self,
+    query: Select,
+    filter_spec: Optional[List[Dict[str, Any]]],
+    model_aliases: Dict[str, Any],
+) -> Select:
         if not filter_spec:
             return query
 
-        for f in filter_spec:
+        # Normalize filter_spec - handle different input formats
+        normalized_filters = self._normalize_filter_spec(filter_spec)
+        
+        for f in normalized_filters:
             field_path = f.get("field")
             op = f.get("op")
             value = f.get("value")
 
-            if not field_path:
+            if not all([field_path, op, value is not None]):
                 continue
 
-            if "." in field_path:
-                model_name, field_name = field_path.split(".", 1)
-                model_alias = model_aliases.get(model_name)
-            else:
-                model_alias = model_aliases[self.model.__name__]
-                field_name = field_path
-
-            field: Optional[InstrumentedAttribute] = getattr(model_alias, field_name, None)
+            # Resolve field path to actual SQLAlchemy field
+            field = self._resolve_field_path(field_path, model_aliases)
             if not field:
                 continue
 
-            match op:
-                case "=" | "==":
-                    expr = field == value
-                case "!=":
-                    expr = field != value
-                case ">":
-                    expr = field > value
-                case "<":
-                    expr = field < value
-                case ">=":
-                    expr = field >= value
-                case "<=":
-                    expr = field <= value
-                case "in":
-                    expr = field.in_(value)
-                case "like":
-                    expr = field.like(f"%{value}%")
-                case "ilike":
-                    expr = field.ilike(f"%{value}%")
-                case _:
-                    continue
+            # Create filter expression
+            expr = self._create_filter_expression(field, op, value)
+            if expr:
+                query = query.filter(expr)
 
-            query = query.filter(expr)
         return query
 
+    def _normalize_filter_spec(self, filter_spec: Any) -> List[Dict[str, Any]]:
+        """Normalize filter spec to ensure it's a list of dictionaries"""
+        normalized = []
+        
+        if isinstance(filter_spec, list):
+            for item in filter_spec:
+                if isinstance(item, dict):
+                    normalized.append(item)
+                elif isinstance(item, list):
+                    # Flatten nested lists
+                    normalized.extend(self._normalize_filter_spec(item))
+        elif isinstance(filter_spec, dict):
+            # Single filter as dict
+            normalized.append(filter_spec)
+        
+        return normalized
+
+    def _resolve_field_path(self, field_path: str, model_aliases: Dict[str, Any]) -> Optional[InstrumentedAttribute]:
+        """Resolve field path like 'User.user_id' to SQLAlchemy field"""
+        if "." in field_path:
+            model_name, field_name = field_path.split(".", 1)
+            model_alias = model_aliases.get(model_name)
+        else:
+            model_alias = model_aliases.get(self.model.__name__)
+            field_name = field_path
+        
+        if not model_alias:
+            return None
+        
+        return getattr(model_alias, field_name, None)
+
+    def _create_filter_expression(self, field: InstrumentedAttribute, op: str, value: Any):
+        """Create SQLAlchemy filter expression"""
+        operator_map = {
+            "=": field == value,
+            "==": field == value,
+            "!=": field != value,
+            ">": field > value,
+            "<": field < value,
+            ">=": field >= value,
+            "<=": field <= value,
+            "in": field.in_(value if isinstance(value, list) else [value]),
+            "like": field.like(f"%{value}%"),
+            "ilike": field.ilike(f"%{value}%"),
+        }
+        
+        return operator_map.get(op)
     # ------------------------------------------------------------------
     # Apply order by
     # ------------------------------------------------------------------
@@ -336,7 +373,7 @@ class BaseRepository:
     # ------------------------------------------------------------------
     # Main dynamic get_all method
     # ------------------------------------------------------------------
-    async def get_all(
+    async def get_filter_data(
         self,
         columns: Optional[List[str]] = None,
         joins: Optional[List[dict]] = None,

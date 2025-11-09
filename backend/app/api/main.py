@@ -1,4 +1,4 @@
-from app.api.routes.v1.endpoints import login, users
+from app.api.routes.v1.endpoints import login, users, departments
 from fastapi import APIRouter
 
 from app.api.routes import items, private, utils
@@ -9,6 +9,7 @@ api_router.include_router(login.router)
 api_router.include_router(users.router)
 api_router.include_router(utils.router)
 api_router.include_router(items.router)
+api_router.include_router(departments.router)
 
 
 if settings.ENVIRONMENT == "local":

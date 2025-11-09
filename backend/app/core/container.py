@@ -12,6 +12,8 @@ class Container(containers.DeclarativeContainer):
     wiring_config = containers.WiringConfiguration(
         modules=[
             "app.api.routes.v1.endpoints.users",
+            "app.api.routes.v1.endpoints.departments",
+            "app.api.routes.v1.endpoints.login",
             "app.api.deps",
         ]
     )
@@ -33,4 +35,8 @@ class Container(containers.DeclarativeContainer):
     user_repository = providers.Factory(UserRepository, session_factory=db.provided.session)
 
     user_service = providers.Factory(UserService, user_repository=user_repository)
+
+    department_repository = providers.Factory(DepartmentRepository, session_factory=db.provided.session)
+
+    department_service = providers.Factory(DepartmentService, department_repository=department_repository)
 

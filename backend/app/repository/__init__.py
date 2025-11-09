@@ -3,3 +3,4 @@
 # from app.repository.user_repository import UserRepository
 
 from app.repository.user_repository import UserRepository
+from app.repository.department_repository import DepartmentRepository

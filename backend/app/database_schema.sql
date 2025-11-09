@@ -32,3 +32,15 @@ CREATE TABLE public.department_admins (
     updated_at TIMESTAMPTZ DEFAULT now(),
     UNIQUE(department_id, user_id)
 );
+
+CREATE TABLE projects (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    code VARCHAR(50) NOT NULL,
+    description TEXT,
+    department_id INTEGER REFERENCES departments(id),
+    start_date DATE,
+    end_date DATE,
+    status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'completed', 'on_hold', 'cancelled'))
+);
+

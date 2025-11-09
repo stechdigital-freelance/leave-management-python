@@ -3,7 +3,8 @@ from typing import Any, Callable, List
 from app.models import UserPublic
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models import User
+# from app.models import User
+from app.model.user_model import User
 from app.repository.base_repository import BaseRepository
 
 
@@ -11,31 +12,44 @@ class UserRepository(BaseRepository):
     def __init__(self, session_factory: Callable[..., AbstractAsyncContextManager[AsyncSession]]):
         super().__init__(session_factory, User)
 
-    async def get_all_users(self, skip: int = 0, limit: int = 100) -> Any:
-        async with self.session_factory() as session:
-            # Get total count - await the scalar result
-            count_stmt = select(func.count()).select_from(User)
-            count = await session.scalar(count_stmt)
+    # async def get_all_users(self, skip: int = 0, limit: int = 100) -> Any:
+    #     async with self.session_factory() as session:
+    #         # Get total count - await the scalar result
+    #         count_stmt = select(func.count()).select_from(User)
+    #         count = await session.scalar(count_stmt)
 
-            # Get paginated users - await the scalars result
-            stmt = select(User).offset(skip).limit(limit)
-            result = await session.scalars(stmt)
-            users = result.all()
+    #         # Get paginated users - await the scalars result
+    #         stmt = select(User).offset(skip).limit(limit)
+    #         result = await session.scalars(stmt)
+    #         users = result.all()
 
-            # Convert ORM/SQLModel User instances to the public pydantic schema
-            users_public: List[UserPublic] = [UserPublic.model_validate(u) for u in users]
+    #         # Convert ORM/SQLModel User instances to the public pydantic schema
+    #         users_public: List[UserPublic] = [UserPublic.model_validate(u) for u in users]
 
-            return users_public
+    #         return users_public
         
     async def get_all_users_new(self, skip: int = 0, limit: int = 100) -> Any:
         async with self.session_factory() as session:
             # Get total count - await the scalar result
 
-            columns = [ "User.id", "User.email", "User.full_name", "User.is_active" ]
+            columns = [ "User.id", "User.email", "User.first_name", "User.last_name", "User.user_id", "User.is_active" ]
          
-            users_data  = await super().get_all(columns, None, None, None, page=skip, per_page=limit)
+            users_data  = await super().get_filter_data(columns, None, None, None, page=skip, per_page=limit)
 
             # Convert ORM/SQLModel User instances to the public pydantic schema
             # users_public: List[UserPublic] = [UserPublic.model_validate(u) for u in users_data["items"]]
 
             return users_data
+        
+    async def get_user_by_email(self, email: str) -> Any:
+        async with self.session_factory() as session:
+            stmt = select(User).where(User.email == email)
+            result = await session.scalars(stmt)
+            user = result.first()
+
+            if user:
+                session.expunge(user)  # Detach from session
+
+            return user
+        
+    

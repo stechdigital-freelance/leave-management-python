@@ -34,5 +34,5 @@ if settings.all_cors_origins:
     )
 
 app.state.container = container
-
+app.dependency_overrides_provider = container
 app.include_router(api_router, prefix=settings.API_V1_STR)

@@ -13,8 +13,7 @@ from sqlalchemy.orm import Session
 from app.core import security
 from app.core.config import settings
 from app.core.db import engine
-from app.models import TokenPayload
-from app.model.user_model import User
+from app.models import TokenPayload, User
 from sqlalchemy.ext.asyncio import AsyncSession
 
 reusable_oauth2 = OAuth2PasswordBearer(

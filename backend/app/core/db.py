@@ -4,6 +4,9 @@ from sqlalchemy.orm import Session
 from app import crud
 from app.core.config import settings
 from app.models import User, UserCreate
+from app.model.user_model import User
+from app.schema.user_schema import UserCreate
+
 from sqlalchemy.ext.asyncio import create_async_engine
 
 engine = create_async_engine(str(settings.SQLALCHEMY_DATABASE_URI))

@@ -1,7 +1,5 @@
 from typing import Annotated, Any
-# from app.model.user_model import User
-# from app.models import UsersPublic
-from app.models import UsersPublic
+from app.schema.user_schema import UsersPublic
 from app.services.user_service import UserService
 from fastapi import APIRouter, Depends
 from dependency_injector.wiring import Provide, inject
